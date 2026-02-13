@@ -2,113 +2,184 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Car Dealer Compare</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Dealership Negotiator Pro</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+
+        // Default local fallback or user-provided config
+        let db;
+        const firebaseConfig = JSON.parse(localStorage.getItem('fb_config'));
+
+        if (firebaseConfig) {
+            const app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            setupFirestore();
+        } else {
+            console.log('Using LocalStorage - Provide Firebase config in settings for cloud sync');
+            setupLocalStorage();
+        }
+
+        window.saveConfig = (configStr) => {
+            try {
+                const config = JSON.parse(configStr);
+                localStorage.setItem('fb_config', configStr);
+                location.reload();
+            } catch (e) { alert('Invalid Config JSON'); }
+        };
+
+        function setupFirestore() {
+            const q = query(collection(db, "offers"), orderBy("price", "asc"));
+            onSnapshot(q, (snapshot) => {
+                const offers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                renderOffers(offers);
+            });
+            window.addOffer = async (o) => await addDoc(collection(db, "offers"), o);
+            window.removeOffer = async (id) => await deleteDoc(doc(db, "offers", id));
+        }
+
+        function setupLocalStorage() {
+            const getLocal = () => JSON.parse(localStorage.getItem('car_offers')) || [];
+            const saveLocal = (offers) => {
+                localStorage.setItem('car_offers', JSON.stringify(offers));
+                renderOffers(offers.sort((a,b) => a.price - b.price));
+            };
+            window.addOffer = (o) => {
+                const current = getLocal();
+                current.push({ id: Date.now().toString(), ...o });
+                saveLocal(current);
+            };
+            window.removeOffer = (id) => {
+                saveLocal(getLocal().filter(o => o.id !== id));
+            };
+            renderOffers(getLocal().sort((a,b) => a.price - b.price));
+        }
+
+        function renderOffers(offers) {
+            const list = document.getElementById('offers-list');
+            list.innerHTML = offers.length ? '' : '<div class="text-center p-10 text-slate-400 italic">No offers yet. Tap + to add.</div>';
+            
+            offers.forEach(o => {
+                const card = document.createElement('div');
+                card.className = 'bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-4 active:scale-95 transition-transform';
+                card.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <div class="flex-1">
+                            <h3 class="font-extrabold text-slate-900 leading-tight">${o.dealer}</h3>
+                            <p class="text-indigo-500 font-bold text-xs uppercase tracking-wider mt-1">${o.model}</p>
+                        </div>
+                        <div class="text-right ml-4">
+                            <span class="bg-emerald-100 text-emerald-700 px-2 py-1 rounded-lg text-xs font-black">₹${Number(o.price).toLocaleString()}</span>
+                        </div>
+                    </div>
+                    ${o.notes ? `<p class="mt-3 text-sm text-slate-600 bg-slate-50 p-3 rounded-xl border-l-4 border-indigo-400 italic">"${o.notes}"</p>` : ''}
+                    <div class="flex justify-between mt-4 pt-3 border-t border-slate-50">
+                        <button onclick="compare('${o.id}')" class="text-xs font-bold text-indigo-600 uppercase tracking-widest">Compare</button>
+                        <button onclick="window.removeOffer('${o.id}')" class="text-xs font-bold text-red-400 uppercase tracking-widest">Remove</button>
+                    </div>
+                `;
+                list.appendChild(card);
+            });
+        }
+    </script>
     <style>
-        .offer-card { transition: all 0.2s; }
-        .offer-card:active { transform: scale(0.98); }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+        body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
+        .safe-area-bottom { padding-bottom: env(safe-area-inset-bottom); }
     </style>
 </head>
-<body class="bg-slate-50 min-h-screen pb-20">
-    <nav class="bg-indigo-600 text-white p-4 sticky top-0 z-10 shadow-md">
-        <h1 class="text-xl font-bold text-center">Car Offer Compare</h1>
-    </nav>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+    <!-- Header -->
+    <header class="bg-white/80 backdrop-blur-md border-b sticky top-0 z-30 p-4 flex justify-between items-center">
+        <h1 class="text-lg font-black tracking-tight text-indigo-600 uppercase">Negotiator v2</h1>
+        <button onclick="toggleSettings()" class="p-2 bg-slate-100 rounded-full">⚙️</button>
+    </header>
 
-    <main class="p-4 max-w-lg mx-auto" id="app">
-        <div id="offers-list" class="space-y-4">
-            <!-- Offers will be injected here -->
+    <main class="p-4 max-w-md mx-auto pb-24">
+        <!-- Summary Stats -->
+        <div id="stats" class="grid grid-cols-2 gap-4 mb-6">
+            <div class="bg-indigo-600 text-white p-4 rounded-3xl shadow-lg shadow-indigo-200">
+                <p class="text-[10px] font-black uppercase opacity-70">Best Offer</p>
+                <p id="best-price" class="text-xl font-black">₹--</p>
+            </div>
+            <div class="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm">
+                <p class="text-[10px] font-black uppercase text-slate-400 tracking-widest">Total Offers</p>
+                <p id="offer-count" class="text-xl font-black text-slate-800">0</p>
+            </div>
         </div>
 
-        <!-- Add Button -->
-        <button onclick="showModal()" class="fixed bottom-6 right-6 bg-indigo-600 text-white w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-3xl focus:outline-none active:bg-indigo-700">
-            +
-        </button>
+        <div id="offers-list">
+            <!-- Dynamic Content -->
+        </div>
     </main>
 
-    <!-- Modal for adding/editing -->
-    <div id="modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-20">
-        <div class="bg-white rounded-xl p-6 w-full max-w-sm shadow-2xl">
-            <h2 class="text-xl font-bold mb-4" id="modal-title">Add Offer</h2>
+    <!-- Bottom FAB -->
+    <div class="fixed bottom-0 left-0 right-0 p-6 pointer-events-none flex justify-center safe-area-bottom">
+        <button onclick="showModal()" class="pointer-events-auto bg-indigo-600 text-white px-8 py-4 rounded-full shadow-2xl shadow-indigo-300 flex items-center space-x-2 active:scale-90 transition-transform">
+            <span class="text-2xl font-bold">+</span>
+            <span class="font-black uppercase tracking-widest text-sm">Add New Quote</span>
+        </button>
+    </div>
+
+    <!-- Modals (Hidden by default) -->
+    <div id="modal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
+        <div class="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl animate-in slide-in-from-bottom duration-300">
+            <h2 class="text-2xl font-black mb-6 tracking-tight">New Quote</h2>
             <div class="space-y-4">
-                <input id="dealer" type="text" placeholder="Dealership Name" class="w-full p-3 border rounded-lg">
-                <input id="model" type="text" placeholder="Car Model (e.g. Kiger 2026)" class="w-full p-3 border rounded-lg">
-                <input id="price" type="number" placeholder="Final Price (₹)" class="w-full p-3 border rounded-lg">
-                <textarea id="notes" placeholder="Remarks/Discounts" class="w-full p-3 border rounded-lg h-24"></textarea>
+                <input id="in-dealer" type="text" placeholder="Dealer Name" class="w-full bg-slate-100 p-4 rounded-2xl border-none outline-none focus:ring-2 focus:ring-indigo-500 font-bold">
+                <input id="in-model" type="text" placeholder="Model (e.g. Kiger 2026)" class="w-full bg-slate-100 p-4 rounded-2xl border-none outline-none focus:ring-2 focus:ring-indigo-500 font-bold">
+                <input id="in-price" type="number" placeholder="Final Price (₹)" class="w-full bg-slate-100 p-4 rounded-2xl border-none outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-indigo-600 text-xl">
+                <textarea id="in-notes" placeholder="Discounts / Negotiation Notes" class="w-full bg-slate-100 p-4 rounded-2xl border-none outline-none focus:ring-2 focus:ring-indigo-500 font-medium h-24"></textarea>
             </div>
-            <div class="flex space-x-3 mt-6">
-                <button onclick="hideModal()" class="flex-1 p-3 text-slate-500 font-semibold">Cancel</button>
-                <button onclick="saveOffer()" class="flex-1 bg-indigo-600 text-white p-3 rounded-lg font-bold">Save Offer</button>
+            <div class="flex space-x-4 mt-8">
+                <button onclick="hideModal()" class="flex-1 p-4 font-bold text-slate-400">Cancel</button>
+                <button onclick="handleSave()" class="flex-1 bg-indigo-600 text-white p-4 rounded-2xl font-black shadow-lg shadow-indigo-200">SAVE</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="settings-modal" class="hidden fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-md rounded-3xl p-8">
+            <h2 class="text-xl font-black mb-2">Cloud Persistence</h2>
+            <p class="text-sm text-slate-500 mb-6 font-medium">Paste your Firebase Web Config JSON here to sync data across devices.</p>
+            <textarea id="fb-config-input" class="w-full h-48 bg-slate-50 border p-4 rounded-xl font-mono text-xs mb-6" placeholder='{"apiKey": "...", ...}'></textarea>
+            <div class="flex space-x-4">
+                <button onclick="toggleSettings()" class="flex-1 font-bold text-slate-400">Close</button>
+                <button onclick="window.saveConfig(document.getElementById('fb-config-input').value)" class="flex-1 bg-slate-900 text-white p-4 rounded-xl font-black">Link Firebase</button>
             </div>
         </div>
     </div>
 
     <script>
-        let offers = JSON.parse(localStorage.getItem('carOffers')) || [
-            { id: 1, dealer: "Karma Hyundai", model: "Aura 2026", price: 1191419, notes: "Initial offer" },
-            { id: 2, dealer: "Brite Nissan", model: "Kiger Xtron 2026", price: 1290545, notes: "Noida branch" },
-            { id: 3, dealer: "Renault Mathur", model: "Kiger En Old VIN", price: 1194874, notes: "Best price so far" }
-        ];
+        function showModal() { document.getElementById('modal').classList.remove('hidden'); }
+        function hideModal() { document.getElementById('modal').classList.add('hidden'); }
+        function toggleSettings() { document.getElementById('settings-modal').classList.toggle('hidden'); }
 
-        function render() {
-            const list = document.getElementById('offers-list');
-            list.innerHTML = '';
-            
-            // Sort by price (lowest first)
-            offers.sort((a, b) => a.price - b.price);
-
-            offers.forEach(o => {
-                const card = document.createElement('div');
-                card.className = 'offer-card bg-white p-4 rounded-xl shadow-sm border border-slate-200';
-                card.innerHTML = `
-                    <div class="flex justify-between items-start">
-                        <div>
-                            <h3 class="font-bold text-lg text-slate-800">${o.dealer}</h3>
-                            <p class="text-slate-500 text-sm">${o.model}</p>
-                        </div>
-                        <div class="text-right">
-                            <p class="text-indigo-600 font-bold text-lg">₹${Number(o.price).toLocaleString()}</p>
-                            <button onclick="deleteOffer(${o.id})" class="text-xs text-red-400 mt-1">Delete</button>
-                        </div>
-                    </div>
-                    ${o.notes ? `<p class="mt-2 text-sm text-slate-600 italic bg-slate-50 p-2 rounded">"${o.notes}"</p>` : ''}
-                `;
-                list.appendChild(card);
-            });
-            localStorage.setItem('carOffers', JSON.stringify(offers));
-        }
-
-        function showModal() {
-            document.getElementById('modal').classList.remove('hidden');
-        }
-
-        function hideModal() {
-            document.getElementById('modal').classList.add('hidden');
-            ['dealer', 'model', 'price', 'notes'].forEach(id => document.getElementById(id).value = '');
-        }
-
-        function saveOffer() {
-            const offer = {
-                id: Date.now(),
-                dealer: document.getElementById('dealer').value,
-                model: document.getElementById('model').value,
-                price: document.getElementById('price').value,
-                notes: document.getElementById('notes').value
+        async function handleSave() {
+            const data = {
+                dealer: document.getElementById('in-dealer').value,
+                model: document.getElementById('in-model').value,
+                price: Number(document.getElementById('in-price').value),
+                notes: document.getElementById('in-notes').value,
+                ts: Date.now()
             };
-            if(!offer.dealer || !offer.price) return alert('Dealer and Price are required');
-            offers.push(offer);
-            render();
+            if(!data.dealer || !data.price) return alert('Dealer and Price required');
+            await window.addOffer(data);
             hideModal();
+            ['in-dealer', 'in-model', 'in-price', 'in-notes'].forEach(id => document.getElementById(id).value = '');
         }
 
-        function deleteOffer(id) {
-            if(confirm('Delete this offer?')) {
-                offers = offers.filter(o => o.id !== id);
-                render();
-            }
-        }
-
-        render();
+        // Stress test: Auto-fill baseline data if empty
+        window.stressTest = () => {
+            const baseline = [
+                { dealer: "Karma Hyundai", model: "Aura 2026", price: 1191419, notes: "Original baseline" },
+                { dealer: "Brite Nissan", model: "Kiger Xtron 2026", price: 1290545, notes: "Noida" },
+                { dealer: "Renault Mathur", model: "Kiger En Old VIN", price: 1194874, notes: "BEST PRICE" }
+            ];
+            baseline.forEach(o => window.addOffer(o));
+        };
     </script>
 </body>
 </html>
