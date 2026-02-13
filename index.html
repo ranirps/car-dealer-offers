@@ -7,11 +7,13 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
-        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc, updateDoc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 
         let db;
         const fbConfig = localStorage.getItem('fb_config');
         const firebaseConfig = fbConfig ? JSON.parse(fbConfig) : null;
+        let currentOffers = [];
+        let editingId = null;
 
         if (firebaseConfig) {
             const app = initializeApp(firebaseConfig);
@@ -32,10 +34,11 @@
         function setupFirestore() {
             const q = query(collection(db, "offers"), orderBy("price", "asc"));
             onSnapshot(q, (snapshot) => {
-                const offers = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-                renderOffers(offers);
+                currentOffers = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+                renderOffers(currentOffers);
             });
             window.addOffer = (data) => addDoc(collection(db, "offers"), data);
+            window.updateOffer = (id, data) => updateDoc(doc(db, "offers", id), data);
             window.deleteOffer = (id) => deleteDoc(doc(db, "offers", id));
         }
 
@@ -47,8 +50,8 @@
                 const baseline = [
                     { dealer: "Karma Hyundai, Noida", model: "i20 Asta(O) IVT", price: 1191419, notes: "New VIN (2026)" },
                     { dealer: "Brite Nissan, Noida", model: "Magnite X-tronic CVT Tekna DT", price: 1290545, notes: "New VIN (2026)" },
-                    { dealer: "Active Motors, Noida", model: "Kiger Emotion CVT Turbo (New)", price: 1289670, notes: "New VIN (2026)" },
-                    { dealer: "Active Motors, Noida", model: "Kiger Emotion CVT Turbo (Old)", price: 1219670, notes: "Old VIN (2025)" },
+                    { dealer: "Active Motors, Noida (New)", model: "Kiger Emotion CVT Turbo", price: 1289670, notes: "New VIN (2026)" },
+                    { dealer: "Active Motors, Noida (Old)", model: "Kiger Emotion CVT Turbo", price: 1219670, notes: "Old VIN (2025)" },
                     { dealer: "Renault, Mathura Road", model: "Kiger Emotion CVT Turbo", price: 1284070, notes: "New VIN (2026)" },
                     { dealer: "NCR Motors, Gurugram", model: "Kiger Emotion CVT Turbo", price: 1275503, notes: "New VIN (2026)" },
                     { dealer: "Sarvvahan Motors, Azadpur", model: "Kiger Emotion CVT Turbo", price: 1322262, notes: "New VIN (2026)" }
@@ -56,41 +59,85 @@
                 saveStored(baseline);
             }
 
-            const refresh = () => renderOffers(getStored().sort((a,b) => a.price - b.price));
+            const refresh = () => {
+                currentOffers = getStored().sort((a,b) => a.price - b.price);
+                renderOffers(currentOffers);
+            };
             window.addOffer = (data) => {
                 const current = getStored();
                 current.push({ ...data, id: 'ls_' + Date.now() });
                 saveStored(current);
                 refresh();
             };
+            window.updateOffer = (id, data) => {
+                const current = getStored().map(o => o.id === id ? { ...o, ...data } : o);
+                saveStored(current);
+                refresh();
+            };
             window.deleteOffer = (id) => {
+                if(!confirm('Delete this offer?')) return;
                 saveStored(getStored().filter(o => o.id != id));
                 refresh();
             };
             refresh();
         }
 
+        window.openEdit = (id) => {
+            const offer = currentOffers.find(o => o.id === id);
+            if(!offer) return;
+            editingId = id;
+            document.getElementById('in-dealer').value = offer.dealer;
+            document.getElementById('in-model').value = offer.model;
+            document.getElementById('in-price').value = offer.price;
+            document.getElementById('in-notes').value = offer.notes || '';
+            document.getElementById('modal-title').innerText = 'Edit Offer';
+            document.getElementById('add-modal').classList.remove('hidden');
+        };
+
         function renderOffers(offers) {
             const list = document.getElementById('offer-list');
             list.innerHTML = '';
-            offers.forEach(o => {
+            
+            if(offers.length > 0) {
+                const best = offers[0];
+                document.getElementById('best-price').innerText = '₹' + best.price.toLocaleString('en-IN');
+                document.getElementById('best-dealer').innerText = best.dealer;
+            }
+
+            offers.forEach((o, index) => {
                 const card = document.createElement('div');
-                card.className = "bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-3 flex justify-between items-center animate-in fade-in slide-in-from-bottom-2 duration-300";
+                card.className = "bg-white p-5 rounded-2xl shadow-sm border border-slate-100 mb-4 animate-in fade-in slide-in-from-bottom-2 duration-300 relative group";
+                const isBest = index === 0;
+                
                 card.innerHTML = `
-                    <div class="flex-1">
-                        <div class="flex items-center gap-2 mb-1">
-                            <h3 class="font-bold text-slate-900">${o.dealer}</h3>
+                    <div class="flex justify-between items-start mb-2">
+                        <div class="flex-1">
+                            <div class="flex items-center gap-2 mb-1">
+                                <h3 class="font-bold text-slate-900">${o.dealer}</h3>
+                                ${isBest ? '<span class="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-black rounded-full uppercase tracking-tighter">Best Deal</span>' : ''}
+                            </div>
+                            <p class="text-xs text-slate-400 font-medium">${o.model}</p>
                         </div>
-                        <p class="text-xs text-slate-500 mb-2">${o.model}</p>
-                        <div class="flex items-baseline gap-1">
-                            <span class="text-xs font-bold text-indigo-600">₹</span>
-                            <span class="text-xl font-black text-indigo-600">${o.price.toLocaleString('en-IN')}</span>
+                        <div class="flex gap-2">
+                            <button onclick="openEdit('${o.id}')" class="p-2 text-slate-300 hover:text-indigo-600 active:scale-90 transition-all">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </button>
+                            <button onclick="deleteOffer('${o.id}')" class="p-2 text-slate-300 hover:text-red-500 active:scale-90 transition-all">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
+                            </button>
                         </div>
-                        ${o.notes ? `<p class="text-[10px] mt-2 inline-block px-2 py-0.5 bg-slate-50 text-slate-500 rounded-md font-medium border border-slate-100">${o.notes}</p>` : ''}
                     </div>
-                    <button onclick="deleteOffer('${o.id}')" class="p-2 text-slate-300 hover:text-red-500 active:scale-90 transition-all">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
-                    </button>
+                    <div class="flex items-baseline gap-1 mb-3">
+                        <span class="text-xs font-bold text-slate-400">₹</span>
+                        <span class="text-2xl font-black text-slate-900">${o.price.toLocaleString('en-IN')}</span>
+                        ${!isBest ? `<span class="text-[10px] font-bold text-red-400 ml-2">+₹${(o.price - offers[0].price).toLocaleString('en-IN')}</span>` : ''}
+                    </div>
+                    <div class="pt-3 border-t border-slate-50">
+                        <p class="text-[11px] text-slate-500 leading-relaxed font-medium">
+                            <span class="text-slate-300 mr-2 font-bold uppercase tracking-widest text-[8px]">Details:</span>
+                            ${o.notes || 'No extra notes provided.'}
+                        </p>
+                    </div>
                 `;
                 list.appendChild(card);
             });
@@ -101,74 +148,100 @@
         .no-scrollbar::-webkit-scrollbar { display: none; }
     </style>
 </head>
-<body class="bg-[#F8FAFC] min-h-screen font-sans text-slate-900 selection:bg-indigo-100">
-    <header class="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-200/60 px-5 py-4 flex justify-between items-center">
-        <div>
-            <h1 class="text-lg font-black tracking-tight flex items-center gap-2">
-                <span class="w-2 h-6 bg-indigo-600 rounded-full"></span>
-                Deal Negotiator
-            </h1>
+<body class="bg-[#F1F5F9] min-h-screen font-sans text-slate-900 selection:bg-indigo-100">
+    <header class="sticky top-0 z-30 bg-white/80 backdrop-blur-xl border-b border-slate-200/50 px-5 py-4 flex justify-between items-center shadow-sm">
+        <div class="flex items-center gap-3">
+            <div class="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-200">
+                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <div>
+                <h1 class="text-sm font-black tracking-tight text-slate-900">DEAL NAVIGATOR</h1>
+                <p class="text-[9px] font-bold text-indigo-600 uppercase tracking-widest">Comparison Mode</p>
+            </div>
         </div>
-        <button onclick="document.getElementById('settings-modal').classList.remove('hidden')" class="p-2 rounded-xl hover:bg-slate-100 transition-colors">
-            <svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/><circle cx="12" cy="12" r="3" stroke-width="2"/></svg>
+        <button onclick="document.getElementById('settings-modal').classList.remove('hidden')" class="p-2.5 rounded-xl bg-white border border-slate-200 shadow-sm text-slate-400">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" stroke-width="2"/></svg>
         </button>
     </header>
 
-    <main class="max-w-md mx-auto p-5 pb-32" id="offer-list">
-        <!-- Offers injected here -->
+    <main class="max-w-md mx-auto p-5 pb-40">
+        <!-- Dashboard / Comparison Summary -->
+        <div class="bg-indigo-600 rounded-[28px] p-6 mb-8 shadow-xl shadow-indigo-100 text-white relative overflow-hidden">
+            <div class="relative z-10">
+                <p class="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-200 mb-1">Current Best Offer</p>
+                <h2 id="best-price" class="text-4xl font-black mb-1">₹0</h2>
+                <p id="best-dealer" class="text-xs font-bold text-indigo-100 opacity-80">No offers yet</p>
+            </div>
+            <svg class="absolute -right-4 -bottom-4 w-32 h-32 text-white/10" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+        </div>
+
+        <div class="flex justify-between items-center mb-5 px-1">
+            <h3 class="font-black text-slate-800 text-sm uppercase tracking-widest">All Dealer Quotes</h3>
+            <span class="text-[10px] font-bold text-slate-400 bg-white px-2 py-1 rounded-lg shadow-sm border border-slate-100">Sorted by Price</span>
+        </div>
+
+        <div id="offer-list">
+            <!-- Offers injected here -->
+        </div>
     </main>
 
-    <div class="fixed bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-[#F8FAFC] via-[#F8FAFC]/90 to-transparent pointer-events-none">
-        <button onclick="document.getElementById('add-modal').classList.remove('hidden')" class="pointer-events-auto w-full max-w-md mx-auto h-14 bg-slate-900 text-white rounded-2xl shadow-xl shadow-slate-200 flex items-center justify-center gap-3 active:scale-[0.98] transition-all font-bold tracking-tight">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            Add New Offer
+    <!-- Navigation / Add Button -->
+    <div class="fixed bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-[#F1F5F9] via-[#F1F5F9]/80 to-transparent pointer-events-none">
+        <button onclick="editingId=null; document.getElementById('modal-title').innerText='Add New Offer'; document.getElementById('add-modal').classList.remove('hidden')" class="pointer-events-auto w-full max-w-md mx-auto h-16 bg-slate-900 text-white rounded-[24px] shadow-2xl shadow-slate-300 flex items-center justify-center gap-3 active:scale-[0.97] transition-all font-black tracking-tight text-base">
+            <div class="w-8 h-8 bg-white/10 rounded-xl flex items-center justify-center">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            Add New Quote
         </button>
     </div>
 
-    <!-- Add Modal -->
-    <div id="add-modal" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/40 backdrop-blur-sm hidden">
-        <div class="bg-white w-full max-w-md rounded-t-[32px] sm:rounded-[32px] p-8 shadow-2xl animate-in fade-in slide-in-from-bottom-10 duration-500">
+    <!-- Add/Edit Modal -->
+    <div id="add-modal" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-md hidden">
+        <div class="bg-white w-full max-w-md rounded-t-[40px] sm:rounded-[40px] p-10 shadow-2xl animate-in fade-in slide-in-from-bottom-20 duration-500">
             <div class="flex justify-between items-center mb-8">
-                <h2 class="text-2xl font-black">New Offer</h2>
-                <button onclick="document.getElementById('add-modal').classList.add('hidden')" class="p-2 bg-slate-50 rounded-full">✕</button>
+                <h2 id="modal-title" class="text-2xl font-black text-slate-900">New Offer</h2>
+                <button onclick="document.getElementById('add-modal').classList.add('hidden')" class="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center text-slate-400 font-bold">✕</button>
             </div>
-            <div class="space-y-5">
+            <div class="space-y-6">
                 <div>
-                    <label class="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1 mb-2 block">Dealer</label>
-                    <input id="in-dealer" type="text" placeholder="e.g. Karma Hyundai" class="w-full p-4 bg-slate-50 rounded-2xl border-2 border-transparent focus:border-indigo-500/20 focus:bg-white outline-none transition-all font-medium">
+                    <label class="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1 mb-2 block">Dealership</label>
+                    <input id="in-dealer" type="text" placeholder="e.g. Karma Hyundai" class="w-full p-4 bg-slate-50 rounded-2xl border-2 border-transparent focus:border-indigo-500/20 focus:bg-white outline-none transition-all font-bold text-slate-700">
                 </div>
                 <div>
-                    <label class="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1 mb-2 block">Model</label>
-                    <input id="in-model" type="text" placeholder="e.g. i20 Asta" class="w-full p-4 bg-slate-50 rounded-2xl border-2 border-transparent focus:border-indigo-500/20 focus:bg-white outline-none transition-all font-medium">
+                    <label class="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1 mb-2 block">Car Model / Variant</label>
+                    <input id="in-model" type="text" placeholder="e.g. i20 Asta IVT" class="w-full p-4 bg-slate-50 rounded-2xl border-2 border-transparent focus:border-indigo-500/20 focus:bg-white outline-none transition-all font-bold text-slate-700">
                 </div>
                 <div>
-                    <label class="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1 mb-2 block">Price</label>
-                    <input id="in-price" type="number" placeholder="0" class="w-full p-4 bg-slate-50 rounded-2xl border-2 border-transparent focus:border-indigo-500/20 focus:bg-white outline-none transition-all font-bold text-xl text-indigo-600">
+                    <label class="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1 mb-2 block">Final On-Road Price</label>
+                    <div class="relative">
+                        <span class="absolute left-4 top-1/2 -translate-y-1/2 text-xl font-black text-indigo-600">₹</span>
+                        <input id="in-price" type="number" placeholder="0" class="w-full p-4 pl-10 bg-slate-50 rounded-2xl border-2 border-transparent focus:border-indigo-500/20 focus:bg-white outline-none transition-all font-black text-2xl text-indigo-600">
+                    </div>
                 </div>
                 <div>
-                    <label class="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1 mb-2 block">Notes</label>
-                    <textarea id="in-notes" placeholder="Remarks..." class="w-full p-4 bg-slate-50 rounded-2xl border-2 border-transparent focus:border-indigo-500/20 focus:bg-white outline-none transition-all font-medium h-24"></textarea>
+                    <label class="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1 mb-2 block">Key Remarks</label>
+                    <textarea id="in-notes" placeholder="e.g. Free insurance included..." class="w-full p-4 bg-slate-50 rounded-2xl border-2 border-transparent focus:border-indigo-500/20 focus:bg-white outline-none transition-all font-bold text-slate-700 h-24 no-scrollbar"></textarea>
                 </div>
-                <button onclick="handleAdd()" class="w-full h-16 bg-indigo-600 text-white font-black rounded-2xl hover:bg-indigo-700 active:scale-95 transition-all shadow-lg shadow-indigo-100 mt-4 text-lg">Save Offer</button>
+                <button onclick="handleSave()" class="w-full h-16 bg-indigo-600 text-white font-black rounded-2xl hover:bg-indigo-700 active:scale-95 transition-all shadow-xl shadow-indigo-100 mt-4 text-lg">Confirm Deal</button>
             </div>
         </div>
     </div>
 
     <!-- Settings Modal -->
-    <div id="settings-modal" class="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/40 backdrop-blur-sm hidden">
-        <div class="bg-white w-full max-w-sm rounded-[32px] p-8 shadow-2xl">
-            <h2 class="text-xl font-black mb-2">Cloud Settings</h2>
-            <p class="text-xs text-slate-500 mb-6 leading-relaxed">Paste your Firebase Config JSON to sync across devices.</p>
-            <textarea id="config-json" placeholder='{"apiKey": "...", ...}' class="w-full p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-indigo-500 outline-none h-40 font-mono text-[10px] text-slate-600 mb-6"></textarea>
-            <div class="flex gap-3">
-                <button onclick="document.getElementById('settings-modal').classList.add('hidden')" class="flex-1 py-4 text-slate-500 font-bold">Close</button>
-                <button onclick="saveConfig(document.getElementById('config-json').value)" class="flex-1 py-4 bg-slate-900 text-white font-black rounded-2xl shadow-lg">Save</button>
+    <div id="settings-modal" class="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-md hidden">
+        <div class="bg-white w-full max-w-sm rounded-[40px] p-10 shadow-2xl">
+            <h2 class="text-xl font-black mb-2 text-slate-900">Cloud Sync</h2>
+            <p class="text-xs text-slate-500 mb-8 leading-relaxed font-medium">Link your Firebase account to sync data across all your devices.</p>
+            <textarea id="config-json" placeholder='{"apiKey": "...", ...}' class="w-full p-5 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-indigo-500 outline-none h-40 font-mono text-[10px] text-slate-500 mb-8 shadow-inner"></textarea>
+            <div class="flex gap-4">
+                <button onclick="document.getElementById('settings-modal').classList.add('hidden')" class="flex-1 py-4 text-slate-400 font-bold hover:text-slate-600 transition-colors">Close</button>
+                <button onclick="saveConfig(document.getElementById('config-json').value)" class="flex-1 py-4 bg-slate-900 text-white font-black rounded-2xl shadow-lg active:scale-95 transition-all">Save Link</button>
             </div>
         </div>
     </div>
 
     <script>
-        async function handleAdd() {
+        async function handleSave() {
             const data = {
                 dealer: document.getElementById('in-dealer').value,
                 model: document.getElementById('in-model').value,
@@ -176,9 +249,16 @@
                 notes: document.getElementById('in-notes').value,
                 ts: Date.now()
             };
-            if(!data.dealer || !data.price) return alert('Dealer and Price required');
-            await window.addOffer(data);
+            if(!data.dealer || !data.price) return alert('Dealership and Price are required');
+            
+            if(editingId) {
+                await window.updateOffer(editingId, data);
+            } else {
+                await window.addOffer(data);
+            }
+            
             document.getElementById('add-modal').classList.add('hidden');
+            editingId = null;
             ['in-dealer', 'in-model', 'in-price', 'in-notes'].forEach(id => document.getElementById(id).value = '');
         }
     </script>
