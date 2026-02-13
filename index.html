@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Car Dealer Compare</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .offer-card { transition: all 0.2s; }
+        .offer-card:active { transform: scale(0.98); }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen pb-20">
+    <nav class="bg-indigo-600 text-white p-4 sticky top-0 z-10 shadow-md">
+        <h1 class="text-xl font-bold text-center">Car Offer Compare</h1>
+    </nav>
+
+    <main class="p-4 max-w-lg mx-auto" id="app">
+        <div id="offers-list" class="space-y-4">
+            <!-- Offers will be injected here -->
+        </div>
+
+        <!-- Add Button -->
+        <button onclick="showModal()" class="fixed bottom-6 right-6 bg-indigo-600 text-white w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-3xl focus:outline-none active:bg-indigo-700">
+            +
+        </button>
+    </main>
+
+    <!-- Modal for adding/editing -->
+    <div id="modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-20">
+        <div class="bg-white rounded-xl p-6 w-full max-w-sm shadow-2xl">
+            <h2 class="text-xl font-bold mb-4" id="modal-title">Add Offer</h2>
+            <div class="space-y-4">
+                <input id="dealer" type="text" placeholder="Dealership Name" class="w-full p-3 border rounded-lg">
+                <input id="model" type="text" placeholder="Car Model (e.g. Kiger 2026)" class="w-full p-3 border rounded-lg">
+                <input id="price" type="number" placeholder="Final Price (₹)" class="w-full p-3 border rounded-lg">
+                <textarea id="notes" placeholder="Remarks/Discounts" class="w-full p-3 border rounded-lg h-24"></textarea>
+            </div>
+            <div class="flex space-x-3 mt-6">
+                <button onclick="hideModal()" class="flex-1 p-3 text-slate-500 font-semibold">Cancel</button>
+                <button onclick="saveOffer()" class="flex-1 bg-indigo-600 text-white p-3 rounded-lg font-bold">Save Offer</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let offers = JSON.parse(localStorage.getItem('carOffers')) || [
+            { id: 1, dealer: "Karma Hyundai", model: "Aura 2026", price: 1191419, notes: "Initial offer" },
+            { id: 2, dealer: "Brite Nissan", model: "Kiger Xtron 2026", price: 1290545, notes: "Noida branch" },
+            { id: 3, dealer: "Renault Mathur", model: "Kiger En Old VIN", price: 1194874, notes: "Best price so far" }
+        ];
+
+        function render() {
+            const list = document.getElementById('offers-list');
+            list.innerHTML = '';
+            
+            // Sort by price (lowest first)
+            offers.sort((a, b) => a.price - b.price);
+
+            offers.forEach(o => {
+                const card = document.createElement('div');
+                card.className = 'offer-card bg-white p-4 rounded-xl shadow-sm border border-slate-200';
+                card.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <h3 class="font-bold text-lg text-slate-800">${o.dealer}</h3>
+                            <p class="text-slate-500 text-sm">${o.model}</p>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-indigo-600 font-bold text-lg">₹${Number(o.price).toLocaleString()}</p>
+                            <button onclick="deleteOffer(${o.id})" class="text-xs text-red-400 mt-1">Delete</button>
+                        </div>
+                    </div>
+                    ${o.notes ? `<p class="mt-2 text-sm text-slate-600 italic bg-slate-50 p-2 rounded">"${o.notes}"</p>` : ''}
+                `;
+                list.appendChild(card);
+            });
+            localStorage.setItem('carOffers', JSON.stringify(offers));
+        }
+
+        function showModal() {
+            document.getElementById('modal').classList.remove('hidden');
+        }
+
+        function hideModal() {
+            document.getElementById('modal').classList.add('hidden');
+            ['dealer', 'model', 'price', 'notes'].forEach(id => document.getElementById(id).value = '');
+        }
+
+        function saveOffer() {
+            const offer = {
+                id: Date.now(),
+                dealer: document.getElementById('dealer').value,
+                model: document.getElementById('model').value,
+                price: document.getElementById('price').value,
+                notes: document.getElementById('notes').value
+            };
+            if(!offer.dealer || !offer.price) return alert('Dealer and Price are required');
+            offers.push(offer);
+            render();
+            hideModal();
+        }
+
+        function deleteOffer(id) {
+            if(confirm('Delete this offer?')) {
+                offers = offers.filter(o => o.id !== id);
+                render();
+            }
+        }
+
+        render();
+    </script>
+</body>
+</html>
